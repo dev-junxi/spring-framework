@@ -38,6 +38,7 @@ import org.springframework.beans.factory.NoSuchBeanDefinitionException;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.AutowireCapableBeanFactory;
 import org.springframework.beans.factory.config.BeanFactoryPostProcessor;
+import org.springframework.beans.factory.config.BeanPostProcessor;
 import org.springframework.beans.factory.config.ConfigurableListableBeanFactory;
 import org.springframework.beans.support.ResourceEditorRegistrar;
 import org.springframework.context.ApplicationContext;
@@ -574,48 +575,130 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 		return this.applicationListeners;
 	}
 
+	/**
+	 * 这段代码是 Spring Framework 中 AbstractApplicationContext.refresh() 方法的核心实现，也是 Spring 容器初始化的最核心流程。
+	 * 它定义了 Spring 容器从空白状态到完全可用的完整生命周期。
+	 *
+	 *     模板方法模式
+	 *     该方法定义了容器刷新的标准流程（不可变骨架），子类通过重写 obtainFreshBeanFactory()、postProcessBeanFactory() 等方法实现差异化（如 AnnotationConfigApplicationContext 和 XmlApplicationContext 的不同实现）。
+	 *
+	 *     原子化阶段划分
+	 *     将复杂的启动过程拆分为 12 个明确阶段（如 prepareRefresh -> obtainFreshBeanFactory -> ... -> finishRefresh），每个阶段职责单一。
+	 *
+	 *     防御性编程
+	 *     通过 startupShutdownMonitor 同步锁防止并发刷新，完善的异常处理（destroyBeans()）保证失败时资源释放。
+	 *
+	 * 架构启示：
+	 * 	    阶段划分艺术：将复杂流程分解为线性阶段，每个阶段聚焦单一目标
+	 *     扩展点设计：通过模板方法（onRefresh）和接口（BeanPostProcessor）提供灵活扩展
+	 *     失败恢复机制：完善的异常处理是框架稳定性的关键
+	 * @throws BeansException
+	 * @throws IllegalStateException
+	 */
 	@Override
 	public void refresh() throws BeansException, IllegalStateException {
+		// todo 经典问题
+		//  Q1：为什么需要同步锁？
+		//  A：防止多线程同时刷新容器，确保 active/closed 状态的一致性。
+		//  ====
+		//  Q2：BeanFactoryPostProcessor 和 BeanPostProcessor 的区别？
+		//    BeanFactoryPostProcessor：操作 Bean 定义（BeanDefinition）
+		//    BeanPostProcessor：干预 Bean 实例化过程
+		//	 ====
+		//		Q3：onRefresh() 的典型应用场景？
+		//    		启动嵌入式 Web 容器（ServletWebServerApplicationContext）
+		//    		初始化定时任务（Scheduling）
+
 		synchronized (this.startupShutdownMonitor) {
+			//todo StartupStep contextRefresh = this.applicationStartup.start("spring.context.refresh");
+			// contextRefresh.end();
+			// 监控能力：
+			//        通过 ApplicationStartup API 记录各阶段耗时
+			//        可与 Micrometer 等监控系统集成
 			StartupStep contextRefresh = this.applicationStartup.start("spring.context.refresh");
 
 			// Prepare this context for refreshing.
+			//todo 阶段一：准备刷新（prepareRefresh()）
+			//		关键操作：
+			//        初始化启动时间戳
+			//        设置容器状态标志（active/closed）
+			//        验证必须的环境变量
 			prepareRefresh();
 
 			// Tell the subclass to refresh the internal bean factory.
+			//todo 阶段二：获取新鲜Bean工厂（obtainFreshBeanFactory()）
+			//		注册配置类
 			ConfigurableListableBeanFactory beanFactory = obtainFreshBeanFactory();
 
 			// Prepare the bean factory for use in this context.
+			//todo 阶段三：准备Bean工厂（prepareBeanFactory()）
+			//		 核心配置：
+			//        注册环境对象（Environment）
+			//        添加 ApplicationContextAware 处理器
+			//        忽略标准接口的依赖注入（如 ResourceLoaderAware）
 			prepareBeanFactory(beanFactory);
 
 			try {
 				// Allows post-processing of the bean factory in context subclasses.
+				//todo 阶段四：后处理Bean工厂
+				//		 扩展点：
+				//        子类可在此处注册特殊的 BeanPostProcessor
+				//        Spring Web 模块在此注册 Servlet 相关后处理器
 				postProcessBeanFactory(beanFactory);
 
 				StartupStep beanPostProcess = this.applicationStartup.start("spring.context.beans.post-process");
 				// Invoke factory processors registered as beans in the context.
+				//todo 阶段五：执行Bean工厂后处理器（invokeBeanFactoryPostProcessors()）
+				//		这是 @Bean、@ComponentScan 等注解生效的关键阶段
 				invokeBeanFactoryPostProcessors(beanFactory);
 
 				// Register bean processors that intercept bean creation.
+				//todo 阶段六：注册Bean后处理器（registerBeanPostProcessors()）
+				//		 设计精妙：
+				//        后处理器本身也是Bean，但需要优先实例化
 				registerBeanPostProcessors(beanFactory);
 				beanPostProcess.end();
 
 				// Initialize message source for this context.
+				//todo 阶段七：初始化消息源（initMessageSource()）
+				//		 国际化支持：
+				//        初始化 MessageSource Bean（没有则创建默认实现）
 				initMessageSource();
 
 				// Initialize event multicaster for this context.
+				//todo 阶段八：初始化事件广播器（initApplicationEventMulticaster()）
+				// 默认使用SimpleApplicationEventMulticaster
+				// 可自定义实现异步事件发布
 				initApplicationEventMulticaster();
 
 				// Initialize other special beans in specific context subclasses.
+				//todo 阶段九：模版方法扩展（onRefresh()）
+				// 子类扩展点
+				// ServletWebServerApplicationContext在此启动嵌入式Tomcat
+				//     重要实现：
+				//        Web 容器在此阶段启动
 				onRefresh();
 
 				// Check for listener beans and register them.
+				//todo 阶段十：注册监听器（registerListeners()）
+				// 1. 添加静态指定的监听器
+				// 2. 注册实现了ApplicationListener的Bean
 				registerListeners();
 
 				// Instantiate all remaining (non-lazy-init) singletons.
+				//todo 阶段十一：实例化单例Bean（finishBeanFactoryInitialization()）
+				// 实例化所有非延迟单例Bean
+				//    关键过程：
+				//        执行依赖注入
+				//        触发 @PostConstruct
+				//        应用 BeanPostProcessor
 				finishBeanFactoryInitialization(beanFactory);
 
 				// Last step: publish corresponding event.
+				//todo 阶段十二：完成刷新（finishRefresh()）
+				//	发布ContextRefreshedEvent
+				//      生命周期标志：
+				//        表示容器完全就绪
 				finishRefresh();
 			}
 
@@ -624,13 +707,20 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 					logger.warn("Exception encountered during context initialization - " +
 							"cancelling refresh attempt: " + ex);
 				}
+				//todo     防御措施：
+				//        避免"半成品"容器导致资源泄漏
+				//        确保失败后容器状态可预测
+
 				// Destroy already created singletons to avoid dangling resources.
+				// 1. 销毁已创建的单例Bean
 				destroyBeans();
 
 				// Reset 'active' flag.
+				// 2. 重置active标志
 				cancelRefresh(ex);
 
 				// Propagate exception to caller.
+				// 3. 重新抛出异常
 				throw ex;
 			}
 
@@ -646,7 +736,9 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 	 */
 	protected void prepareRefresh() {
 		// Switch to active.
+		//todo 初始化启动时间戳
 		this.startupDate = System.currentTimeMillis();
+		//todo 设置容器状态标识
 		this.closed.set(false);
 		this.active.set(true);
 
