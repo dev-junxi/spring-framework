@@ -797,15 +797,25 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 	 * Configure the factory's standard context characteristics,
 	 * such as the context's ClassLoader and post-processors.
 	 * @param beanFactory the BeanFactory to configure
+	 *
+	 * prepareBeanFactory() 是 Spring 容器初始化过程中配置 BeanFactory 的核心方法，
+	 * 位于 AbstractApplicationContext.refresh() 的 obtainFreshBeanFactory() 之后。
+	 * 它的主要职责是为刚创建的 BeanFactory 配置基础设施，包括类加载器、表达式解析器、Aware 接口回调、依赖注入支持等
 	 */
 	protected void prepareBeanFactory(ConfigurableListableBeanFactory beanFactory) {
 		// Tell the internal bean factory to use the context's class loader etc.
+		//todo 类加载器：设置用于加载 Bean 类的 ClassLoader（通常为当前上下文的类加载器）。
 		beanFactory.setBeanClassLoader(getClassLoader());
+		//todo 表达式解析器：支持 SpEL 表达式（如 @Value("#{systemProperties.foo}")）。
 		beanFactory.setBeanExpressionResolver(new StandardBeanExpressionResolver(beanFactory.getBeanClassLoader()));
+		//todo 属性编辑器：注册 ResourceEditor，用于将字符串路径转换为 Resource 对象（如 "classpath:config.xml" → ClassPathResource）。
 		beanFactory.addPropertyEditorRegistrar(new ResourceEditorRegistrar(this, getEnvironment()));
 
 		// Configure the bean factory with context callbacks.
+		//todo ApplicationContextAwareProcessor：
+		//	负责处理实现了 Aware 接口（如 EnvironmentAware、ApplicationContextAware）的 Bean，在初始化阶段注入对应的依赖（通过回调方法如 setApplicationContext()）。
 		beanFactory.addBeanPostProcessor(new ApplicationContextAwareProcessor(this));
+		//todo 告诉容器不要通过自动装配来处理这些接口的依赖（因为它们已通过 AwareProcessor 手动注入）。
 		beanFactory.ignoreDependencyInterface(EnvironmentAware.class);
 		beanFactory.ignoreDependencyInterface(EmbeddedValueResolverAware.class);
 		beanFactory.ignoreDependencyInterface(ResourceLoaderAware.class);
@@ -816,15 +826,27 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 
 		// BeanFactory interface not registered as resolvable type in a plain factory.
 		// MessageSource registered (and found for autowiring) as a bean.
+		//todo 注册可解析的依赖
+		// 当 Bean 需要注入以下类型时，直接返回预设的实例（而非通过常规的 Bean 查找）：
+		//    BeanFactory：当前容器的 BeanFactory。
+		//    ResourceLoader：当前上下文（本身是 ResourceLoader 的实现）。
+		//    ApplicationEventPublisher/ApplicationContext：当前上下文。
 		beanFactory.registerResolvableDependency(BeanFactory.class, beanFactory);
 		beanFactory.registerResolvableDependency(ResourceLoader.class, this);
 		beanFactory.registerResolvableDependency(ApplicationEventPublisher.class, this);
 		beanFactory.registerResolvableDependency(ApplicationContext.class, this);
 
 		// Register early post-processor for detecting inner beans as ApplicationListeners.
+		//todo 注册 ApplicationListenerDetector
+		//	检测所有 Bean，如果实现了 ApplicationListener 接口，则将其注册为事件监听器。同时跟踪单例 Bean 的销毁，自动从监听器列表中移除。
 		beanFactory.addBeanPostProcessor(new ApplicationListenerDetector(this));
 
 		// Detect a LoadTimeWeaver and prepare for weaving, if found.
+		//todo 处理 LoadTimeWeaving（LTW）
+		//     LoadTimeWeaving：
+		//    支持类加载期织入（AOP 的一种方式），仅在检测到 LoadTimeWeaver Bean 时生效。
+		//    临时类加载器：
+		//    为类型匹配提供临时 ClassLoader，确保织入后的类能被正确加载。
 		if (!NativeDetector.inNativeImage() && beanFactory.containsBean(LOAD_TIME_WEAVER_BEAN_NAME)) {
 			beanFactory.addBeanPostProcessor(new LoadTimeWeaverAwareProcessor(beanFactory));
 			// Set a temporary ClassLoader for type matching.
@@ -832,6 +854,12 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 		}
 
 		// Register default environment beans.
+		//todo 注册默认环境 Bean
+		//	注册的单例 Bean：
+		//    environment：当前 Environment（配置源）。
+		//    systemProperties：System.getProperties()。
+		//    systemEnvironment：System.getenv()。
+		//    applicationStartup：应用启动指标收集器。
 		if (!beanFactory.containsLocalBean(ENVIRONMENT_BEAN_NAME)) {
 			beanFactory.registerSingleton(ENVIRONMENT_BEAN_NAME, getEnvironment());
 		}
