@@ -890,12 +890,49 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 	 * Instantiate and invoke all registered BeanFactoryPostProcessor beans,
 	 * respecting explicit order if given.
 	 * <p>Must be called before singleton instantiation.
+	 *
+	 * invokeBeanFactoryPostProcessors() 是 Spring 容器初始化过程中触发所有 BeanFactoryPostProcessor 执行的核心方法，
+	 * 负责扩展或修改 BeanFactory 的配置信息（如注册额外的 BeanDefinition、修改已有的 Bean 定义等）
+	 * 1. 核心作用
+	 *
+	 *     执行 BeanFactoryPostProcessor：
+	 *     调用所有已注册的 BeanFactoryPostProcessor，允许它们在 Bean 实例化之前对 BeanFactory 进行干预。
+	 *
+	 *     处理 LoadTimeWeaving（LTW）：
+	 *     如果检测到类加载期织入（AOP）的需求，临时设置 ClassLoader 以支持动态代理。
+	 *
+	 *
+	 *     设计意图
+	 *
+	 *     扩展点：
+	 *     允许开发者在 Bean 实例化前修改容器配置（如替换实现类、调整属性值）。
+	 *
+	 *     模块化：
+	 *     将不同功能的处理逻辑（如配置解析、AOP 准备）解耦到独立的 PostProcessor 中。
+	 *
+	 *     性能优化：
+	 *     通过优先级控制执行顺序，避免重复处理。
 	 */
 	protected void invokeBeanFactoryPostProcessors(ConfigurableListableBeanFactory beanFactory) {
+		//todo     处理对象：
+		//        内置处理器：如 ConfigurationClassPostProcessor（处理 @Configuration 类）、PropertySourcesPlaceholderConfigurer（解析 ${} 占位符）。
+		//        用户自定义处理器：通过 addBeanFactoryPostProcessor() 手动添加或通过 @Bean 声明。
+		//    执行顺序：
+		//        BeanDefinitionRegistryPostProcessor（优先执行，可注册新的 BeanDefinition）。
+		//        常规 BeanFactoryPostProcessor（修改已有的 BeanDefinition）。
+		//        按优先级排序（PriorityOrdered > Ordered > 无顺序）。
 		PostProcessorRegistrationDelegate.invokeBeanFactoryPostProcessors(beanFactory, getBeanFactoryPostProcessors());
 
 		// Detect a LoadTimeWeaver and prepare for weaving, if found in the meantime
 		// (e.g. through an @Bean method registered by ConfigurationClassPostProcessor)
+		//todo 处理 LoadTimeWeaving（可选）
+		// 条件：
+		//    非原生镜像环境（!NativeDetector.inNativeImage()）。
+		//    尚未设置临时 ClassLoader。
+		//    存在名为 loadTimeWeaver 的 Bean（通过 @EnableLoadTimeWeaving 或 XML 配置）。
+		// 操作：
+		//    注册 LoadTimeWeaverAwareProcessor，为实现了 LoadTimeWeaverAware 的 Bean 注入织入器。
+		//    设置临时 ClassLoader，确保织入后的类能被正确加载
 		if (!NativeDetector.inNativeImage() && beanFactory.getTempClassLoader() == null &&
 				beanFactory.containsBean(LOAD_TIME_WEAVER_BEAN_NAME)) {
 			beanFactory.addBeanPostProcessor(new LoadTimeWeaverAwareProcessor(beanFactory));
@@ -1032,11 +1069,38 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 	}
 
 	/**
+	 * 这段代码是 Spring 框架中 完成 Bean 工厂初始化 的核心方法 finishBeanFactoryInitialization()，
+	 * 位于 AbstractApplicationContext.refresh() 的最后阶段。它的核心职责是初始化所有非懒加载的单例 Bean，并完成容器最终配置。
 	 * Finish the initialization of this context's bean factory,
 	 * initializing all remaining singleton beans.
+	 *
+	 *     核心目标：
+	 *     冻结 Bean 定义（禁止修改），并实例化所有非懒加载的单例 Bean，完成依赖注入和初始化。
+	 *
+	 *     触发时机：
+	 *     在 refresh() 方法的最后阶段，确保所有 Bean 定义已加载且后处理器已注册。
+	 *
+	 *
+	 *
+	 *     finishBeanFactoryInitialization() 是 Spring 容器启动的收尾阶段，核心任务包括：
+	 *
+	 *     配置收尾：初始化转换服务、占位符解析器等基础设施。
+	 *
+	 *     资源清理：释放临时类加载器。
+	 *
+	 *     冻结配置：禁止修改 Bean 定义，提升性能。
+	 *
+	 *     实例化 Bean：完成所有非懒加载单例 Bean 的创建、依赖注入和初始化。
+	 *
+	 * 此方法执行完毕后，Spring 容器正式进入运行态，可对外提供服务。
 	 */
 	protected void finishBeanFactoryInitialization(ConfigurableListableBeanFactory beanFactory) {
 		// Initialize conversion service for this context.
+		//todo (1) 初始化转换服务（ConversionService）
+		//     作用：
+		//    若用户配置了名为 conversionService 的 Bean（实现 ConversionService 接口），将其设置为容器的全局类型转换服务。
+		//    应用场景：
+		//    处理 @Value 注解中的类型转换（如将 String 转为 Date）。
 		if (beanFactory.containsBean(CONVERSION_SERVICE_BEAN_NAME) &&
 				beanFactory.isTypeMatch(CONVERSION_SERVICE_BEAN_NAME, ConversionService.class)) {
 			beanFactory.setConversionService(
@@ -1046,23 +1110,48 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 		// Register a default embedded value resolver if no BeanFactoryPostProcessor
 		// (such as a PropertySourcesPlaceholderConfigurer bean) registered any before:
 		// at this point, primarily for resolution in annotation attribute values.
+		//todo (2) 注册默认的嵌入式值解析器
+		//     作用：
+		//    若没有 BeanFactoryPostProcessor（如 PropertySourcesPlaceholderConfigurer）注册过值解析器，则添加一个默认解析器。
+		//    功能：
+		//    解析占位符（如 ${server.port}），主要用于注解属性值的替换。
 		if (!beanFactory.hasEmbeddedValueResolver()) {
 			beanFactory.addEmbeddedValueResolver(strVal -> getEnvironment().resolvePlaceholders(strVal));
 		}
 
 		// Initialize LoadTimeWeaverAware beans early to allow for registering their transformers early.
+		//todo (3) 提前初始化 LoadTimeWeaverAware Bean
+		//     目的：
+		//    为支持类加载期织入（Load-Time Weaving，LTW），提前初始化这些 Bean，以便注册类转换器。
+		//    典型场景：
+		//    Spring AOP 的 @EnableLoadTimeWeaving 或 AspectJ 的 LTW。
 		String[] weaverAwareNames = beanFactory.getBeanNamesForType(LoadTimeWeaverAware.class, false, false);
 		for (String weaverAwareName : weaverAwareNames) {
 			getBean(weaverAwareName);
 		}
 
 		// Stop using the temporary ClassLoader for type matching.
+		//todo (4) 清理临时类加载器
+		// 背景：
+		// 在之前的处理阶段（如解析 @Configuration 类）可能使用了临时 ClassLoader，此处释放资源。
 		beanFactory.setTempClassLoader(null);
 
 		// Allow for caching all bean definition metadata, not expecting further changes.
+		//todo (5) 冻结 Bean 定义
+		//     作用：
+		//    禁止再修改 BeanDefinition，优化后续性能（如缓存元数据）。
+		//    设计意图：
+		//    确保容器启动后 Bean 定义不可变，避免并发问题。
 		beanFactory.freezeConfiguration();
 
 		// Instantiate all remaining (non-lazy-init) singletons.
+		//todo (6) 实例化所有非懒加载的单例 Bean
+		//     核心逻辑：
+		//    遍历所有单例 Bean 定义，对非懒加载的 Bean 调用 getBean()，触发以下流程：
+		//        实例化：调用构造方法创建对象。
+		//        依赖注入：填充 @Autowired、@Resource 等注解标记的属性。
+		//        初始化：执行 @PostConstruct、InitializingBean.afterPropertiesSet()、init-method。
+		//        后处理：执行 BeanPostProcessor.postProcessAfterInitialization()。
 		beanFactory.preInstantiateSingletons();
 	}
 
@@ -1070,21 +1159,48 @@ public abstract class AbstractApplicationContext extends DefaultResourceLoader
 	 * Finish the refresh of this context, invoking the LifecycleProcessor's
 	 * onRefresh() method and publishing the
 	 * {@link org.springframework.context.event.ContextRefreshedEvent}.
+	 *
+	 * 这段代码是 Spring 容器启动流程中的 最终刷新阶段（finishRefresh()），位于 AbstractApplicationContext.refresh() 方法的最后一步。
+	 * 它的核心职责是 完成容器的最终初始化，并通知所有监听器容器已就绪。
+	 *
+	 *     核心目标：
+	 *     清理临时缓存、初始化生命周期处理器、发布容器刷新完成事件，标志 Spring 容器正式进入运行状态。
+	 *
+	 *     触发时机：
+	 *     在所有 Bean 实例化、依赖注入、初始化完成后执行（紧接 finishBeanFactoryInitialization()）。
 	 */
 	protected void finishRefresh() {
 		// Reset common introspection caches in Spring's core infrastructure.
+		//todo (1) 清理缓存
+		//    resetCommonCaches()：
+		//    重置 Spring 核心基础设施的反射缓存（如 Class 方法、字段的元数据缓存），避免内存泄漏。
+		//    clearResourceCaches()：
+		//    清理资源缓存（如 ASM 扫描的类元数据），释放内存。
 		resetCommonCaches();
 
 		// Clear context-level resource caches (such as ASM metadata from scanning).
 		clearResourceCaches();
 
 		// Initialize lifecycle processor for this context.
+		//todo (2) 初始化生命周期处理器
+		//     作用：
+		//    若用户未自定义 LifecycleProcessor，则注册默认的 DefaultLifecycleProcessor。
+		//    功能：
+		//    管理容器内所有 Lifecycle 实现（如定时任务、Netty 服务）的启动/停止，与容器生命周期同步。
 		initLifecycleProcessor();
 
 		// Propagate refresh to lifecycle processor first.
+		//todo (3) 触发生命周期处理器的刷新
+		// 关键逻辑：
+		// 调用 LifecycleProcessor.onRefresh()，启动所有实现了 Lifecycle 接口的 Bean（如 SmartLifecycle 的 start() 方法）。
 		getLifecycleProcessor().onRefresh();
 
 		// Publish the final event.
+		//todo (4) 发布容器刷新完成事件
+		//     事件类型：
+		//    ContextRefreshedEvent，标志容器完全就绪。
+		//    监听器示例：
+		//    开发者可通过 @EventListener(ContextRefreshedEvent.class) 执行启动后逻辑（如加载初始数据）。
 		publishEvent(new ContextRefreshedEvent(this));
 	}
 

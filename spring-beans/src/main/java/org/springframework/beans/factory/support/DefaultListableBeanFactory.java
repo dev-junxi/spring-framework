@@ -949,6 +949,41 @@ public class DefaultListableBeanFactory extends AbstractAutowireCapableBeanFacto
 		return super.obtainInstanceFromSupplier(supplier, beanName, mbd);
 	}
 
+	/**
+	 * sequenceDiagram
+	 *     participant preInstantiateSingletons
+	 *     participant getBean
+	 *     participant doGetBean
+	 *     participant createBean
+	 *     participant doCreateBean
+	 *     participant initializeBean
+	 *
+	 *     preInstantiateSingletons->>getBean: 遍历单例Bean名称，调用getBean()
+	 *     getBean->>doGetBean: 实际获取Bean实例
+	 *     doGetBean->>createBean: 若实例不存在，创建Bean
+	 *     createBean->>doCreateBean: 执行具体创建逻辑
+	 *     doCreateBean->>initializeBean: 初始化Bean实例
+	 *     initializeBean->>BeanPostProcessor: 调用前后置处理器
+	 *
+	 *
+	 *     BeanPostProcessor				作用								触发阶段
+	 * AutowiredAnnotationBeanPostProcessor	处理 @Autowired 和 @Value 注入。	postProcessProperties()
+	 * CommonAnnotationBeanPostProcessor	处理 @PostConstruct 和 @PreDestroy。	postProcessBeforeInitialization
+	 * AnnotationAwareAspectJAutoProxyCreator	生成 AOP 代理。	postProcessAfterInitialization
+	 *
+	 *     入口：DefaultListableBeanFactory.preInstantiateSingletons() 触发非懒加载单例 Bean 的实例化。
+	 *
+	 *     调用链：
+	 *     getBean() → doGetBean() → createBean() → doCreateBean() → initializeBean()。
+	 *
+	 *     核心阶段：
+	 *
+	 *         实例化（构造方法）→ 2. 依赖注入 → 3. 初始化 → 4. 后处理。
+	 *
+	 *     扩展点：
+	 *     BeanPostProcessor 贯穿整个生命周期，提供灵活的干预能力。
+	 * @throws BeansException
+	 */
 	@Override
 	public void preInstantiateSingletons() throws BeansException {
 		if (logger.isTraceEnabled()) {
