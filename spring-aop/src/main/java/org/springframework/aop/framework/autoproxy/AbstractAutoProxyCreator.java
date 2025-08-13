@@ -277,6 +277,8 @@ public abstract class AbstractAutoProxyCreator extends ProxyProcessorSupport
 			if (this.advisedBeans.containsKey(cacheKey)) {
 				return null;
 			}
+			//todo 非基础设施类：
+			// isInfrastructureClass(beanClass) 返回 false（排除 Spring 自身的 AOP 基础设施类，如 Advice、Advisor 等）。
 			if (isInfrastructureClass(beanClass) || shouldSkip(beanClass, beanName)) {
 				this.advisedBeans.put(cacheKey, Boolean.FALSE);
 				return null;
@@ -458,8 +460,14 @@ public abstract class AbstractAutoProxyCreator extends ProxyProcessorSupport
 	 * @return the AOP proxy for the bean
 	 * @see #buildAdvisors
 	 */
-	protected Object createProxy(Class<?> beanClass, @Nullable String beanName,
-			@Nullable Object[] specificInterceptors, TargetSource targetSource) {
+	//todo AbstractAutoProxyCreator.createProxy() 是 Spring AOP（面向切面编程）中自动创建代理对象的核心方法，
+	// 属于 AbstractAutoProxyCreator 类的关键实现。该方法负责根据目标 Bean 的配置和拦截器链，生成动态代理对象（JDK 动态代理或 CGLIB 代理）。
+	// 以下是其详细解析：
+	protected Object createProxy(Class<?> beanClass,  // 目标Bean的Class对象
+								 @Nullable String beanName,// Bean的名称
+			@Nullable Object[] specificInterceptors, // 特定的拦截器（如Advisor、Advice）
+								 TargetSource targetSource  // 目标对象的来源（如Bean实例）
+	) {
 
 		return buildProxy(beanClass, beanName, specificInterceptors, targetSource, false);
 	}
@@ -477,8 +485,14 @@ public abstract class AbstractAutoProxyCreator extends ProxyProcessorSupport
 			AutoProxyUtils.exposeTargetClass(clbf, beanName, beanClass);
 		}
 
+		//todo (2) 创建代理工厂
+		//todo     关键配置项：
+		//        proxyTargetClass：
+		//            true → 强制使用 CGLIB 代理（代理类）。
+		//            false → 优先使用 JDK 动态代理（代理接口）。
+		//        optimize：是否启用 CGLIB 优化策略。
 		ProxyFactory proxyFactory = new ProxyFactory();
-		proxyFactory.copyFrom(this);
+		proxyFactory.copyFrom(this);  // 继承父类的配置（如proxyTargetClass）
 
 		if (proxyFactory.isProxyTargetClass()) {
 			// Explicit handling of JDK proxy targets and lambdas (for introduction advice scenarios)
@@ -499,9 +513,15 @@ public abstract class AbstractAutoProxyCreator extends ProxyProcessorSupport
 			}
 		}
 
+		//todo (1) 构建完整的拦截器链
+		//     specificInterceptors：可能包含以下类型：
+		//        Advisor：直接加入拦截链。
+		//        Advice（如 MethodBeforeAdvice）：包装为 DefaultPointcutAdvisor。
+		//        MethodInterceptor（如 TransactionInterceptor）：直接使用。
+
 		Advisor[] advisors = buildAdvisors(beanName, specificInterceptors);
-		proxyFactory.addAdvisors(advisors);
-		proxyFactory.setTargetSource(targetSource);
+		proxyFactory.addAdvisors(advisors);  // 添加拦截器链
+		proxyFactory.setTargetSource(targetSource); // 设置目标对象来源
 		customizeProxyFactory(proxyFactory);
 
 		proxyFactory.setFrozen(this.freezeProxy);
@@ -514,6 +534,12 @@ public abstract class AbstractAutoProxyCreator extends ProxyProcessorSupport
 		if (classLoader instanceof SmartClassLoader smartClassLoader && classLoader != beanClass.getClassLoader()) {
 			classLoader = smartClassLoader.getOriginalClassLoader();
 		}
+		//todo (3) 选择代理方式
+		// 代理类型选择逻辑：
+		// 条件	代理类型	适用场景
+		// 目标类未实现接口	CGLIB	普通类代理（如 UserService 无接口）。
+		// 设置了 proxyTargetClass=true	CGLIB	需要代理类而非接口。
+		// 目标类实现接口且未强制 CGLIB	JDK 动态代理	基于接口代理（如 UserServiceImpl）。
 		return (classOnly ? proxyFactory.getProxyClass(classLoader) : proxyFactory.getProxy(classLoader));
 	}
 

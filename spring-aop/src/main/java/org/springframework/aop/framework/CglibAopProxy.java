@@ -157,6 +157,8 @@ class CglibAopProxy implements AopProxy, Serializable {
 
 	@Override
 	public Object getProxy(@Nullable ClassLoader classLoader) {
+		//todo CGLIB 代理：
+		// 通过字节码增强生成目标类的子类。
 		return buildProxy(classLoader, false);
 	}
 

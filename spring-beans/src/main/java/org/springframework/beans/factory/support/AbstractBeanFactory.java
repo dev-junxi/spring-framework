@@ -322,6 +322,7 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 				if (mbd.isSingleton()) {
 					sharedInstance = getSingleton(beanName, () -> {
 						try {
+							//todo createBean
 							return createBean(beanName, mbd, args);
 						}
 						catch (BeansException ex) {
@@ -361,6 +362,7 @@ public abstract class AbstractBeanFactory extends FactoryBeanRegistrySupport imp
 						Object scopedInstance = scope.get(beanName, () -> {
 							beforePrototypeCreation(beanName);
 							try {
+								//todo createBean
 								return createBean(beanName, mbd, args);
 							}
 							finally {
